@@ -3480,9 +3480,11 @@ class RedisAdapter {
       
       let url;
       // Upstash Redis REST API格式
-      if (expirationTime) {
+      if (expirationTime && expirationTime > 0) {
+        // 有过期时间
         url = `${this.url}/setex/${encodeURIComponent(key)}/${expirationTime}`;
       } else {
+        // 永不过期
         url = `${this.url}/set/${encodeURIComponent(key)}`;
       }
       
@@ -3528,7 +3530,8 @@ const Workers = {
         const redis = new RedisAdapter({
           url: env.REDIS_URL,
           token: env.REDIS_TOKEN,
-          expirationTime: parseInt(env.REDIS_EXPIRATION || '86400')
+          // 如果设置为0或负数，则表示永不过期
+          expirationTime: env.REDIS_EXPIRATION ? parseInt(env.REDIS_EXPIRATION) : 86400
         });
         
         // 将Redis客户端添加到env
