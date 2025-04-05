@@ -3443,9 +3443,98 @@ function createRouter() {
   router.all("*", () => new Response("Not Found", { status: 404 }));
   return router;
 }
+
+// 添加Redis适配器
+class RedisAdapter {
+  constructor(options = {}) {
+    this.url = options.url || "";
+    this.token = options.token || "";
+    this.expirationTime = options.expirationTime || 86400; // 默认一天
+  }
+
+  async get(key) {
+    try {
+      const response = await fetch(`${this.url}/get/${encodeURIComponent(key)}`, {
+        headers: {
+          Authorization: `Bearer ${this.token}`
+        }
+      });
+      
+      const data = await response.json();
+      if (!data.result) return null;
+      
+      // 返回字符串结果，与原始DATABASE接口兼容
+      return data.result;
+    } catch (error) {
+      console.error("Redis GET错误:", error);
+      return null;
+    }
+  }
+
+  async put(key, value, options = {}) {
+    try {
+      const expirationTime = options.expirationTtl || options.expiration || this.expirationTime;
+      
+      // 确保value是字符串
+      const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
+      
+      let url;
+      // Upstash Redis REST API格式
+      if (expirationTime) {
+        url = `${this.url}/setex/${encodeURIComponent(key)}/${expirationTime}`;
+      } else {
+        url = `${this.url}/set/${encodeURIComponent(key)}`;
+      }
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify([stringValue])
+      });
+      
+      await response.json();
+      return true;
+    } catch (error) {
+      console.error("Redis PUT错误:", error);
+      return false;
+    }
+  }
+
+  async delete(key) {
+    try {
+      await fetch(`${this.url}/del/${encodeURIComponent(key)}`, {
+        headers: {
+          Authorization: `Bearer ${this.token}`
+        }
+      });
+      return true;
+    } catch (error) {
+      console.error("Redis DELETE错误:", error);
+      return false;
+    }
+  }
+}
+
 const Workers = {
   async fetch(request, env) {
     try {
+      // 检查是否有Redis配置
+      if (env.REDIS_URL && env.REDIS_TOKEN) {
+        console.log("初始化Redis客户端");
+        // 创建Redis客户端
+        const redis = new RedisAdapter({
+          url: env.REDIS_URL,
+          token: env.REDIS_TOKEN,
+          expirationTime: parseInt(env.REDIS_EXPIRATION || '86400')
+        });
+        
+        // 将Redis客户端添加到env
+        env.DATABASE = redis;
+      }
+      
       ENV.merge(env);
       return createRouter().fetch(request);
     } catch (e) {
